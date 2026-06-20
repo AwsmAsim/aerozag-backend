@@ -28,9 +28,28 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   reply: string;
+  chips: string[];
   conv_id: string;
   lead_captured: boolean;
   demo_booked: boolean;
+}
+
+// Split a "CHIPS: a | b | c" trailing line out of the model reply.
+function extractChips(text: string): { reply: string; chips: string[] } {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(/^\s*CHIPS:\s*(.+)$/i);
+    if (m) {
+      const chips = m[1]
+        .split('|')
+        .map(s => s.trim().replace(/^[→·*\-\s]+/, '').replace(/\*+/g, ''))
+        .filter(Boolean)
+        .slice(0, 4);
+      lines.splice(i, 1);
+      return { reply: lines.join('\n').trim(), chips };
+    }
+  }
+  return { reply: text.trim(), chips: [] };
 }
 
 function getOrCreateConv(session_id: string): string {
@@ -105,11 +124,11 @@ export async function processChat(req: ChatRequest): Promise<ChatResponse> {
           result = JSON.stringify({ success: true, lead_id });
           saveMessage(conv_id, 'tool', result, 'book_demo');
         } else if (tc.function.name === 'classify_intent') {
-          db.prepare('UPDATE conversations SET intent = ?, updated_at = datetime("now") WHERE id = ?')
+          db.prepare("UPDATE conversations SET intent = ?, updated_at = datetime('now') WHERE id = ?")
             .run(args.intent, conv_id);
           result = JSON.stringify({ success: true });
         } else if (tc.function.name === 'score_lead') {
-          db.prepare('UPDATE conversations SET score = ?, updated_at = datetime("now") WHERE id = ?')
+          db.prepare("UPDATE conversations SET score = ?, updated_at = datetime('now') WHERE id = ?")
             .run(args.score, conv_id);
           result = JSON.stringify({ success: true });
         }
@@ -131,7 +150,10 @@ export async function processChat(req: ChatRequest): Promise<ChatResponse> {
 
   if (!finalReply) finalReply = "I'm having trouble right now. Please email us at hello@aerozag.ai.";
 
+  const { reply, chips } = extractChips(finalReply);
+
+  // Persist the full reply (with chips line) for the transcript record.
   saveMessage(conv_id, 'assistant', finalReply);
 
-  return { reply: finalReply, conv_id, lead_captured, demo_booked };
+  return { reply, chips, conv_id, lead_captured, demo_booked };
 }

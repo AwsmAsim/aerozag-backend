@@ -5,7 +5,7 @@ const router = Router();
 
 // Manual lead capture (from the "Talk to Us" form on landing page)
 router.post('/', async (req: Request, res: Response) => {
-  const { name, email, phone, airline, role, pain_point, message } = req.body;
+  const { name, email, phone, airline, role, ticket_vol, timeline, pain_point, message, source } = req.body;
 
   // Honeypot spam check
   if (req.body.website) {
@@ -19,6 +19,10 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'invalid email' });
   }
 
+  // Only allow a known set of frontend-supplied sources
+  const allowedSources = ['contact_form', 'demo_modal'];
+  const safeSource = allowedSources.includes(source) ? source : 'contact_form';
+
   try {
     const lead_id = await saveLead({
       name,
@@ -26,8 +30,11 @@ router.post('/', async (req: Request, res: Response) => {
       phone,
       airline,
       role,
+      ticket_vol,
+      timeline,
       pain_point: pain_point || message,
-      source: 'contact_form'
+      source: safeSource,
+      is_demo: safeSource === 'demo_modal'
     });
     return res.json({ ok: true, lead_id });
   } catch (err) {
